@@ -1,36 +1,53 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Visitor ID Kiosk</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  
-  <!-- Stylesheets -->
-  <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="idle.css" />
-  <link rel="stylesheet" href="select_mode.css" />
-  <link rel="stylesheet" href="deposit_details.css" />
-  <link rel="stylesheet" href="scan_rfid.css" />
-  <link rel="stylesheet" href="cubby_action.css" />
-</head>
-<body>
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-  <header class="topbar">
-    <div class="brand" onclick="window.goToScreen('01-idle')">
-      <span>Visitor ID Kiosk</span>
-      <span class="firebase-pill"><span class="dot"></span><span>Ready</span></span>
-    </div>
-    <div class="topbar-right">
-      <div class="state-badge" id="stateBadge">Idle</div>
-    </div>
-  </header>
+// 1. Firebase Configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyCn5gfD0ewwlW3BCCdQ257wmP6y86Ry",
+  authDomain: "pigate-4ed8c.firebaseapp.com",
+  databaseURL: "https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app/",
+  projectId: "pigate-4ed8c",
+  storageBucket: "pigate-4ed8c.firebasestorage.app",
+  messagingSenderId: "493528421844",
+  appId: "1:493528421844:web:364aeb80b91660d864f"
+};
 
-  <main class="kiosk-card" id="kioskCard"></main>
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
 
-  <!-- App Controller ES Module -->
-  <script type="module" src="app.js"></script>
-</body>
-</html>
+// 2. UI Status Elements
+const fbDot = document.querySelector(".firebase-pill .dot");
+const fbLabel = document.querySelector(".firebase-pill span:last-child");
+const stateBadge = document.getElementById("stateBadge");
+const kioskCard = document.getElementById("kioskCard");
+
+// Set connected status visually
+if (fbDot && fbLabel) {
+  fbDot.style.background = "#22c55e"; // Green dot
+  fbLabel.textContent = "Firebase Live";
+}
+
+// 3. Listen to Raspberry Pi PIR Motion Sensor in Real-Time
+const motionRef = ref(db, 'kiosk/motion_detected');
+
+onValue(motionRef, (snapshot) => {
+  const isMotionDetected = snapshot.val();
+  console.log("Motion status changed from Pi:", isMotionDetected);
+
+  if (isMotionDetected === true) {
+    if (stateBadge) stateBadge.textContent = "Select Mode";
+    // Trigger screen switch to your Select Mode view
+    if (window.goToScreen) {
+      window.goToScreen('02-select-mode');
+    } else {
+      kioskCard.innerHTML = `<h2>Motion Detected! Please Select Mode</h2>`;
+    }
+  } else {
+    if (stateBadge) stateBadge.textContent = "Idle";
+    if (window.goToScreen) {
+      window.goToScreen('01-idle');
+    } else {
+      kioskCard.innerHTML = `<h2>Welcome</h2><p>Step closer to begin. Waiting for motion.</p>`;
+    }
+  }
+});
