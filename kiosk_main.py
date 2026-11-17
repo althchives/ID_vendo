@@ -1,7 +1,7 @@
 import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
 import time
-import requests  # Required for sending data to Firebase via REST API
+import requests
 
 # --- FIREBASE REST API CONFIG ---
 FIREBASE_URL = "https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app/kiosk"
@@ -21,15 +21,13 @@ GPIO.setwarnings(False)
 
 # --- PIN MAPPINGS (Cubbies 1 to 6) ---
 PIR_PIN = 17
-IR_PINS = [4, 18, 14, 16, 21, 15]          # IR Sensors for Cubbies 1-6
-SERVO_PINS = [5, 6, 13, 19, 26, 20]        # Servo Motors for Cubbies 1-6
+IR_PINS = [4, 18, 14, 16, 21, 15]          
+SERVO_PINS = [5, 6, 13, 19, 26, 20]        
 
-# L298N Motor Driver Pins (Card Dispenser DC Motor)
 EN_A = 12
 IN_1 = 27
 IN_2 = 22
 
-# --- MAP RFID TAG IDs TO CUBBY NUMBERS (1 to 6) ---
 RFID_TO_CUBBY = {
     584192329369: 1,  # Cubby 1 Tag[cite: 8]
     584182872247: 2,  # Cubby 2 Tag[cite: 9]
@@ -39,7 +37,6 @@ RFID_TO_CUBBY = {
     584183954977: 6   # Cubby 6 Tag
 }
 
-# --- SETUP INPUTS AND OUTPUTS ---
 GPIO.setup(PIR_PIN, GPIO.IN)
 for pin in IR_PINS:
     GPIO.setup(pin, GPIO.IN)
@@ -91,23 +88,34 @@ def dispense_card():
 def main():
     reader = SimpleMFRC522()
     print("--------------------------------------------------")
-    print(" Smart Cubby Kiosk System Initialized (Firebase Connected)")
+    print(" Smart Cubby Kiosk System (Dynamic PIR Monitoring)")
     print("--------------------------------------------------\n")
 
     time.sleep(2)
+    last_motion_state = None
 
     try:
         while True:
-            # 1. PIR Motion Detection Phase
-            if GPIO.input(PIR_PIN) == GPIO.HIGH:
-                print("\n[MOTION DETECTED] PIR triggered locally!")
-                update_firebase("", {"motion_detected": True, "timestamp": time.time()})
+            # 1. Dynamic PIR Motion Detection Phase
+            current_motion_state = GPIO.input(PIR_PIN) == GPIO.HIGH
+            
+            # Only update Firebase if the state actually changes to avoid spamming network requests
+            if current_motion_state != last_motion_state:
+                last_motion_state = current_motion_state
                 
-                for i, ir_pin in enumerate(IR_PINS):
-                    status = GPIO.input(ir_pin)
-                    status_str = "Blocked" if status == 0 else "Clear"
-                    print(f"Cubby {i+1} IR Sensor (GPIO {ir_pin}): {status_str}")
-                    update_firebase(f"cubbies/{i+1}", {"ir_status": status_str})
+                if current_motion_state:
+                    print("\n[MOTION DETECTED] PIR triggered (True)")
+                    update_firebase("", {"motion_detected": True, "timestamp": time.time()})
+                    
+                    # Scan all IR sensor statuses when motion happens
+                    for i, ir_pin in enumerate(IR_PINS):
+                        status = GPIO.input(ir_pin)
+                        status_str = "Blocked" if status == 0 else "Clear"
+                        print(f"Cubby {i+1} IR Sensor (GPIO {ir_pin}): {status_str}")
+                        update_firebase(f"cubbies/{i+1}", {"ir_status": status_str})
+                else:
+                    print("\n[NO MOTION] PIR cleared (False)")
+                    update_firebase("", {"motion_detected": False, "timestamp": time.time()})
 
             # 2. RFID Reader Check (Non-blocking scan)
             card_id, text = reader.read_no_block()
