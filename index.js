@@ -1,8 +1,25 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 import { backend } from "./kiosk-backend.js";
 import { SCREENS } from "./screens.js";
 import { renderIdle } from "./idle.js";
 import { renderSelectMode } from "./select_mode.js";
 import { renderDepositDetails } from "./deposit.js";
+
+// 1. Firebase Regional Configuration & Initialization
+const firebaseConfig = {
+  apiKey: "AIzaSyCn5gfD0ewwlW3BCCdQ257wmP6y86Ry",
+  authDomain: "pigate-4ed8c.firebaseapp.com",
+  databaseURL: "https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app/",
+  projectId: "pigate-4ed8c",
+  storageBucket: "pigate-4ed8c.firebasestorage.app",
+  messagingSenderId: "493528421844",
+  appId: "1:493528421844:web:364aeb80b91660d864f"
+};
+
+const app = initializeApp(firebaseConfig);
+// Explicitly passing the regional database URL fixes Vercel/browser sync issues
+const db = getDatabase(app, "https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app/");
 
 const state = {
   currentScreen: "01-idle",
@@ -15,29 +32,25 @@ const state = {
   }
 };
 
-// Poll the Python Flask backend every 500ms to check for ultrasonic motion
-setInterval(async () => {
-    try {
-        const response = await fetch('http://172.20.10.11:5000/check-motion');
-        const data = await response.json();
-        
-        if (data.wake) {
-            console.log("Motion detected from sensor! Changing UI screen...");
-            
-            // TODO: Replace these element IDs with your actual screen IDs in index.html
-            // For example, hiding the idle screen and showing the main selection screen:
-            const idleScreen = document.getElementById('idle-screen');
-            const mainScreen = document.getElementById('main-screen');
-            
-            if (idleScreen && mainScreen) {
-                idleScreen.classList.add('hidden');
-                mainScreen.classList.remove('hidden');
-            }
-        }
-    } catch (error) {
-        // Silently catch network errors if Python script isn't running yet
-    }
-}, 500);
+// 2. Real-Time Firebase Listener for Raspberry Pi PIR Motion Sensor
+const motionRef = ref(db, 'kiosk/motion_detected');
+
+onValue(motionRef, (snapshot) => {
+  const isMotionDetected = snapshot.val();
+  console.log("Motion status changed from Pi:", isMotionDetected);
+
+  const stateBadge = document.getElementById("stateBadge");
+
+  if (isMotionDetected === true) {
+    if (stateBadge) stateBadge.textContent = "Select Mode";
+    // Automatically jump to Select Mode screen when motion is triggered
+    window.goToScreen('02-select-mode');
+  } else {
+    if (stateBadge) stateBadge.textContent = "Idle";
+    // Return to Idle screen when motion clears
+    window.goToScreen('01-idle');
+  }
+});
 
 function renderCubbyGrid(highlightId = null, clickableMode = null) {
   return `
@@ -64,7 +77,7 @@ function renderScreen() {
   const card = document.getElementById("kioskCard");
   const badge = document.getElementById("stateBadge");
   const screenMeta = SCREENS.find((s) => s.id === state.currentScreen);
-  badge.textContent = state.currentScreen === "00-all-screens" ? "All 18 Screens" : (screenMeta?.badge || "Idle");
+  if (badge) badge.textContent = state.currentScreen === "00-all-screens" ? "All 18 Screens" : (screenMeta?.badge || "Idle");
 
   const freeCount = backend.cubbies.filter((c) => !c.occupied).length;
 
@@ -332,13 +345,15 @@ function renderScreen() {
 
 function renderBottomNav() {
   const nav = document.getElementById("screenNav");
-  nav.innerHTML = SCREENS.map(
-    (s) => `
-      <button class="nav-chip ${state.currentScreen === s.id ? "active" : ""}" onclick="window.goToScreen('${s.id}')">
-        ${s.num} · ${s.label}
-      </button>
-    `
-  ).join("");
+  if (nav) {
+    nav.innerHTML = SCREENS.map(
+      (s) => `
+        <button class="nav-chip ${state.currentScreen === s.id ? "active" : ""}" onclick="window.goToScreen('${s.id}')">
+          ${s.num} · ${s.label}
+        </button>
+      `
+    ).join("");
+  }
 }
 
 // Global window actions for DOM event bindings
