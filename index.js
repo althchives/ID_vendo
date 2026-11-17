@@ -4,7 +4,7 @@ import { backend } from "./kiosk-backend.js";
 import { SCREENS } from "./screens.js";
 import { renderIdle } from "./idle.js";
 import { renderSelectMode } from "./select_mode.js";
-import { renderDepositDetails } from "./deposit.js";
+import { renderDepositDetails } from "./deposit_details.js";
 
 // 1. Firebase Regional Configuration & Initialization
 const firebaseConfig = {
