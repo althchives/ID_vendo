@@ -1,5 +1,7 @@
-import { doc, getDoc, setDoc, onSnapshot, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, firebaseConfig } from "./firebase-config.js";
+import { getDatabase, ref, get, set, onValue, push, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { app } from "./firebaseconfig.js"; // Make sure this matches your config file export name
+
+const db = getDatabase(app);
 
 const DEFAULT_CUBBIES = [
   { id: 1, occupied: false, visitor: null },
@@ -19,24 +21,20 @@ class KioskBackend {
 
   async init(onChange) {
     this.onChangeCallback = onChange;
-    const isConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
-
-    if (!isConfigured) {
-      this.setStatus(false, "Local Fallback (Add Firebase Config)");
-      this.notify();
-      return;
-    }
 
     try {
-      const stateRef = doc(db, "kiosk", "cubbyState");
-      const snap = await getDoc(stateRef);
+      const stateRef = ref(db, "kiosk/cubbyState");
+      const snap = await get(stateRef);
+      
       if (!snap.exists()) {
-        await setDoc(stateRef, { cubbies: DEFAULT_CUBBIES, updatedAt: serverTimestamp() });
+        await set(stateRef, { cubbies: DEFAULT_CUBBIES, updatedAt: Date.now() });
       }
 
-      onSnapshot(stateRef, (docSnap) => {
-        if (docSnap.exists() && Array.isArray(docSnap.data().cubbies)) {
-          this.cubbies = docSnap.data().cubbies;
+      // Listen in real-time for changes to cubby state
+      onValue(stateRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data && Array.isArray(data.cubbies)) {
+          this.cubbies = data.cubbies;
           localStorage.setItem("kiosk_cubbies", JSON.stringify(this.cubbies));
           this.setStatus(true, "Firebase Live");
           this.notify();
@@ -66,22 +64,30 @@ class KioskBackend {
     localStorage.setItem("kiosk_cubbies", JSON.stringify(updatedCubbies));
     this.notify();
 
-    const isConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
-    if (this.isLive && isConfigured) {
-      try {
-        await setDoc(doc(db, "kiosk", "cubbyState"), {
-          cubbies: updatedCubbies,
-          updatedAt: serverTimestamp()
+    try {
+      // Update cubby state in Realtime Database
+      await set(ref(db, "kiosk/cubbyState"), {
+        cubbies: updatedCubbies,
+        updatedAt: Date.now()
+      });
+
+      // If a web action happens (like opening a cubby), send command to Raspberry Pi via Realtime Database!
+      if (logEvent && logEvent.action === "DEPOSIT") {
+        await set(ref(db, "kiosk/commands"), {
+          action: "open_cubby",
+          cubby_id: logEvent.cubbyId,
+          timestamp: Date.now()
         });
-        if (logEvent) {
-          await addDoc(collection(db, "kioskLogs"), {
-            ...logEvent,
-            timestamp: serverTimestamp()
-          });
-        }
-      } catch (err) {
-        console.error("Firestore sync error:", err);
       }
+
+      if (logEvent) {
+        await push(ref(db, "kioskLogs"), {
+          ...logEvent,
+          timestamp: Date.now()
+        });
+      }
+    } catch (err) {
+      console.error("Realtime Database sync error:", err);
     }
   }
 
