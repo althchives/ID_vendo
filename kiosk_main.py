@@ -4,13 +4,11 @@ import time
 import firebase_admin
 from firebase_admin import credentials, db
 
-# --- FIREBASE SETUP USING DATABASE SECRET ---
-firebase_admin.initialize_app(options={
-    'databaseURL': 'https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app/',
-    'databaseAuthVariableOverride': {
-        'uid': 'raspberry-pi-kiosk'
-    }
-}, name='kiosk_app')
+# --- FIREBASE SETUP ---
+cred = credentials.Certificate("/home/group4_4b/Downloads/ID_vendo/serviceAccountKey.json")
+firebase_admin.initialize_app(cred, {
+    'databaseURL': 'https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app/'
+})
 
 # --- GPIO SETUP ---
 GPIO.setmode(GPIO.BCM)
