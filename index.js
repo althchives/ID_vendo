@@ -33,10 +33,13 @@ const state = {
 };
 
 // 2. Real-Time Firebase Listener for Raspberry Pi PIR Motion Sensor
-const motionRef = ref(db, 'kiosk/motion_detected');
+// Updated to match root-level node matching Python script writing patterns
+const motionRef = ref(db, 'motion_detected');
 
 onValue(motionRef, (snapshot) => {
-  const isMotionDetected = snapshot.val();
+  const rawVal = snapshot.val();
+  // Handle both boolean true/false or integer 1/0 from python scripts safely
+  const isMotionDetected = rawVal === true || rawVal === 1;
   console.log("Motion status changed from Pi:", isMotionDetected);
 
   const stateBadge = document.getElementById("stateBadge");
@@ -44,12 +47,16 @@ onValue(motionRef, (snapshot) => {
   if (isMotionDetected === true) {
     if (stateBadge) stateBadge.textContent = "Select Mode";
     // Automatically jump to Select Mode screen when motion is triggered
-    window.goToScreen('02-select-mode');
+    if (state.currentScreen === "01-idle") {
+      window.goToScreen('02-select-mode');
+    }
   } else {
     if (stateBadge) stateBadge.textContent = "Idle";
-    // Return to Idle screen when motion clears
-    window.goToScreen('01-idle');
+    // Return to Idle screen when motion clears (uncomment if you want auto-reset on clear)
+    // window.goToScreen('01-idle');
   }
+}, (error) => {
+  console.error("Firebase motion read failed:", error);
 });
 
 function renderCubbyGrid(highlightId = null, clickableMode = null) {
