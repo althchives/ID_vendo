@@ -2,12 +2,14 @@ import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
 import time
 import firebase_admin
-from firebase_admin import credentials, db
+from firebase_admin import db
 
-# --- FIREBASE SETUP ---
-cred = credentials.Certificate("/home/group4_4b/Downloads/ID_vendo/serviceAccountKey.json")
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app/'
+# --- FIREBASE SETUP USING DATABASE SECRET ---
+firebase_admin.initialize_app(options={
+    'databaseURL': 'https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    'databaseAuthVariableOverride': {
+        'uid': 'raspberry-pi-kiosk'
+    }
 })
 
 # --- GPIO SETUP ---
