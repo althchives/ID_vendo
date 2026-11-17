@@ -1,0 +1,5 @@
+.scan-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; max-width: 680px; margin: 0 auto; width: 100%; }
+.scan-icon-circle {
+  width: 104px; height: 104px; border-radius: 50%; background: #f3e8ff; color: var(--accent-purple);
+  border: 2px solid #d8b4fe; display: flex; align-items: center; justify-content: center; font-size: 46px; margin-bottom: 22px;
+}
