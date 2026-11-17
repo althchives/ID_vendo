@@ -3,7 +3,6 @@ from mfrc522 import SimpleMFRC522
 import time
 import firebase_admin
 from firebase_admin import credentials, db
-from firebase_admin import db
 
 # --- FIREBASE SETUP USING DATABASE SECRET ---
 firebase_admin.initialize_app(options={
@@ -11,7 +10,8 @@ firebase_admin.initialize_app(options={
     'databaseAuthVariableOverride': {
         'uid': 'raspberry-pi-kiosk'
     }
-})
+}, name='kiosk_app')
+
 # --- GPIO SETUP ---
 GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
