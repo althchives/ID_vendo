@@ -2,6 +2,7 @@ import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
 import time
 import requests
+import threading
 
 # --- FIREBASE REST API CONFIG ---
 FIREBASE_URL = "https://pigate-4ed8c-default-rtdb.asia-southeast1.firebasedatabase.app"
@@ -29,7 +30,7 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
 
 # --- PIN MAPPINGS ---
-PIR_PIN = 17                               # PIR Motion Sensor on GPIO 17 (Strictly Motion Only)
+PIR_PIN = 17                               # PIR Motion Sensor on GPIO 17
 IR_PINS = [4, 18, 14, 16, 21, 15]          # Cubbies 1 to 6 IR sensors
 SERVO_PINS = [5, 6, 13, 19, 26, 20]        # Cubbies 1 to 6 Servos
 
@@ -51,6 +52,8 @@ RFID_TO_CUBBY = {
     584187072384: 5,
     584183954977: 6
 }
+
+CUBBY_TO_RFID = {v: k for k, v in RFID_TO_CUBBY.items()}
 
 GPIO.setup(PIR_PIN, GPIO.IN)
 for pin in IR_PINS:
@@ -142,9 +145,8 @@ def scan_ir_and_find_nearest_vacant():
 
     for i, pin in enumerate(IR_PINS):
         status = GPIO.input(pin)
-        is_occupied = (status == 0) # 0 = Blocked/Occupied, 1 = Clear/Available
+        is_occupied = (status == 0)
         status_str = "Occupied" if is_occupied else "Available"
-        
         print(f" -> Cubby #{i+1} (GPIO {pin}): {status_str} [Raw Value: {status}]")
         
         cubbies_data.append({
@@ -168,9 +170,30 @@ def scan_ir_and_find_nearest_vacant():
     print(f"--------------------------------------------------\n")
     return nearest_vacant
 
+def get_occupied_cubbies_from_hardware():
+    occupied_list = []
+    print("\n--------------------------------------------------")
+    print("[HARDWARE IR CHECK] Deposited RFID Records List:")
+    print("--------------------------------------------------")
+    
+    for i, pin in enumerate(IR_PINS):
+        cubby_id = i + 1
+        status = GPIO.input(pin)
+        is_occupied = (status == 0)
+        
+        if is_occupied:
+            rfid_uid = CUBBY_TO_RFID.get(cubby_id, "Unknown")
+            occupied_list.append({"cubby": cubby_id, "rfid": rfid_uid})
+            print(f" [OCCUPIED] Cubby #{cubby_id} | Linked RFID UID: {rfid_uid}")
+        else:
+            print(f" [AVAILABLE] Cubby #{cubby_id}")
+            
+    print(f"--------------------------------------------------\n")
+    return occupied_list
+
 def monitor_id_placement_and_close(cubby_num):
     print(f"\n--------------------------------------------------")
-    print(f"[IR MONITORING] Actively watching Cubby #{cubby_num} (GPIO {IR_PINS[cubby_num - 1]}) for ID placement...")
+    print(f"[IR MONITORING] Actively watching Cubby #{cubby_num} for ID placement...")
     print(f"--------------------------------------------------")
     
     ir_pin = IR_PINS[cubby_num - 1]
@@ -179,7 +202,6 @@ def monitor_id_placement_and_close(cubby_num):
     while True:
         status = GPIO.input(ir_pin)
         is_occupied = (status == 0)
-        
         print(f" [Live IR Scan] Cubby #{cubby_num} status -> {'Occupied (ID Placed)' if is_occupied else 'Waiting for ID...'} [Raw: {status}]", end="\r")
         
         if is_occupied:
@@ -200,25 +222,49 @@ def monitor_id_placement_and_close(cubby_num):
     })
     print("-> [TRANSITION] Software advanced to door closed screen.")
 
-def main():
+# Shared variable to pass scanned card data safely from thread to main loop
+latest_scanned_card = None
+
+def rfid_background_worker():
+    """Dedicated background thread that polls the RFID reader continuously without network lag"""
+    global latest_scanned_card
     reader = SimpleMFRC522()
+    print("[RFID THREAD] Background reader listener started.")
+    
+    while True:
+        try:
+            # Using read_no_block in a fast dedicated thread
+            card_id, text = reader.read_no_block()
+            if card_id:
+                latest_scanned_card = int(card_id)
+                time.sleep(1.0) # Debounce delay to prevent double reads on the same tap
+            else:
+                time.sleep(0.1)
+        except Exception:
+            time.sleep(0.2)
+
+def main():
+    global latest_scanned_card
     print("--------------------------------------------------")
     print(" Smart Cubby Kiosk System - Active & Monitoring")
     print("--------------------------------------------------\n")
 
-    # Clear out any old stale commands on startup so it doesn't auto-trigger
     update_firebase("commands", {"action": "none", "timestamp": 0})
+
+    # Start the RFID reader in a separate background daemon thread
+    rfid_thread = threading.Thread(target=rfid_background_worker, daemon=True)
+    rfid_thread.start()
 
     time.sleep(2)
     last_check = 0
-    
-    # Get current timestamp so we only accept NEW clicks made after script startup
     last_processed_cmd = time.time() * 1000
+    last_screen_checked = ""
 
     try:
         while True:
             current_time = time.time()
 
+            # 1. Poll Firebase for commands and states
             if current_time - last_check > 0.3:
                 last_check = current_time
                 
@@ -229,7 +275,7 @@ def main():
                 current_screen = kiosk_data.get("state", "01-idle")
                 commands = kiosk_data.get("commands", {})
 
-                # 1. PIR Motion Sensor Check (Active when system is in Idle state)
+                # PIR Motion Check (Idle state)
                 if current_screen == "01-idle":
                     current_motion_state = GPIO.input(PIR_PIN) == GPIO.HIGH
                     if current_motion_state:
@@ -240,32 +286,55 @@ def main():
                             "timestamp": time.time()
                         })
 
-                # 2. IR Sensor Availability Check (Triggered ONLY on fresh click of 'Continue')
+                # Detect transition into withdraw scan screen to print hardware IR list immediately
+                if current_screen == "11-withdraw-scan-rfid" and last_screen_checked != "11-withdraw-scan-rfid":
+                    print("\n[EVENT RESULT] Entered Withdraw Scan Screen. Inspecting hardware IR records...")
+                    get_occupied_cubbies_from_hardware()
+
+                last_screen_checked = current_screen
+
+                # Command Handlers for Deposit & Withdraw
                 cmd_action = commands.get("action")
                 cmd_ts = commands.get("timestamp", 0)
                 
-                if cmd_action == "start_deposit" and cmd_ts > last_processed_cmd:
-                    last_processed_cmd = cmd_ts
-                    print("\n[EVENT RESULT] 'Continue' clicked! Scanning IR sensors...")
+                if cmd_ts > last_processed_cmd:
+                    if cmd_action == "start_deposit":
+                        last_processed_cmd = cmd_ts
+                        print("\n[EVENT RESULT] Deposit triggered! Scanning IR sensors...")
 
-                    assigned_cubby = scan_ir_and_find_nearest_vacant()
-                    time.sleep(1.0)
+                        assigned_cubby = scan_ir_and_find_nearest_vacant()
+                        time.sleep(1.0)
 
-                    update_firebase("", {
-                        "state": "05-deposit-scan-rfid",
-                        "active_cubby": assigned_cubby,
-                        "timestamp": time.time()
-                    })
-                    print(f"-> [TRANSITION] Proceeding to RFID scan screen for Cubby #{assigned_cubby}")
+                        update_firebase("", {
+                            "state": "05-deposit-scan-rfid",
+                            "active_cubby": assigned_cubby,
+                            "timestamp": time.time()
+                        })
+                        print(f"-> [TRANSITION] Proceeding to RFID scan screen for Cubby #{assigned_cubby}")
 
-            # 3. RFID Scan & Verification Phase
-            card_id, text = reader.read_no_block()
-            if card_id:
+                    elif cmd_action == "start_withdraw":
+                        last_processed_cmd = cmd_ts
+                        print("\n[EVENT RESULT] Withdraw triggered! Inspecting physical hardware...")
+
+                        get_occupied_cubbies_from_hardware()
+
+                        update_firebase("", {
+                            "state": "11-withdraw-scan-rfid",
+                            "timestamp": time.time()
+                        })
+                        print("-> [TRANSITION] Proceeding to Withdraw RFID scan screen.")
+
+            # 2. Process any card scanned by the background thread
+            if latest_scanned_card is not None:
+                card_id = latest_scanned_card
+                latest_scanned_card = None  # Consume the card event
+
                 kiosk_data = get_kiosk_data()
                 current_screen = kiosk_data.get("state") if kiosk_data else ""
 
+                # --- DEPOSIT SCAN ---
                 if current_screen == "05-deposit-scan-rfid":
-                    print(f"\n[RFID RESULT] Scanned Card UID: {card_id}")
+                    print(f"\n[RFID DEPOSIT SCAN] Scanned Card UID: {card_id}")
                     if card_id in RFID_TO_CUBBY:
                         scanned_cubby = RFID_TO_CUBBY[card_id]
                         software_target_cubby = kiosk_data.get("active_cubby")
@@ -273,8 +342,6 @@ def main():
                         if software_target_cubby is not None:
                             if scanned_cubby == software_target_cubby:
                                 print(f"-> [VERIFICATION SUCCESS] Correct card! Opening Cubby #{software_target_cubby}")
-                                
-                                dispense_card_until_detected()
                                 open_cubby(software_target_cubby)
                                 
                                 update_firebase("", {
@@ -290,7 +357,7 @@ def main():
 
                                 monitor_id_placement_and_close(software_target_cubby)
                             else:
-                                print(f"-> [SYSTEM WARNING] Incorrect RFID card scanned. Expected Cubby #{software_target_cubby}, got Cubby #{scanned_cubby}.")
+                                print(f"-> [SYSTEM WARNING] Incorrect RFID card scanned.")
                                 update_firebase("last_scan", {
                                     "card_id": str(card_id),
                                     "cubby": scanned_cubby,
@@ -298,6 +365,38 @@ def main():
                                 })
                     else:
                         print(f"-> [SYSTEM WARNING] Unknown Card ID.")
+
+                # --- WITHDRAW SCAN ---
+                elif current_screen == "11-withdraw-scan-rfid":
+                    print(f"\n[RFID WITHDRAW SCAN] Scanned Card UID: {card_id}")
+                    
+                    active_hardware_deposits = get_occupied_cubbies_from_hardware()
+                    matching_deposit = next((d for d in active_hardware_deposits if d["rfid"] == card_id), None)
+
+                    if matching_deposit:
+                        target_cubby = matching_deposit["cubby"]
+                        print(f"-> [WITHDRAW SUCCESS] Scanned card matches physically occupied Cubby #{target_cubby}! Opening door...")
+                        
+                        open_cubby(target_cubby)
+
+                        update_firebase("", {
+                            "state": "14-withdraw-cubby-open",
+                            "active_cubby": target_cubby,
+                            "timestamp": time.time()
+                        })
+
+                        update_firebase("last_scan", {
+                            "card_id": str(card_id),
+                            "cubby": target_cubby,
+                            "timestamp": time.time()
+                        })
+                    else:
+                        print(f"-> [WITHDRAW WARNING] Scanned card UID {card_id} does not match any currently occupied cubby.")
+                        update_firebase("last_scan", {
+                            "card_id": str(card_id),
+                            "cubby": None,
+                            "timestamp": time.time()
+                        })
 
             time.sleep(0.05)
 

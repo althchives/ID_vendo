@@ -208,7 +208,7 @@ function renderScreen() {
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
           <div class="status-icon-circle icon-success" style="margin-bottom: 14px;">✅</div>
-          <h2 class="screen-title" style="font-size: 32px; font-weight: 800; margin-bottom: 8px;">Deposit Complete!</h2>
+          <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Deposit Complete!</h2>
           <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 20px;">Your ID is safely stored in <strong>Cubby #${state.activeCubby}</strong>.</p>
           <button class="btn-primary" style="min-width:200px;" onclick="window.goToScreen('01-idle')">Done</button>
         </div>
@@ -288,9 +288,17 @@ window.startDeposit = () => {
   window.goToScreen("03-deposit-details");
 };
 
-window.startWithdraw = () => {
+window.startWithdraw = async () => {
   state.scanErrorWarning = "";
   window.goToScreen("11-withdraw-scan-rfid");
+  try {
+    await set(ref(db, 'kiosk/commands'), {
+      action: "start_withdraw",
+      timestamp: Date.now()
+    });
+  } catch (err) {
+    console.error("Failed to send start_withdraw command:", err);
+  }
 };
 
 window.submitDepositDetails = async () => {
