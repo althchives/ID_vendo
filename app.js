@@ -118,9 +118,8 @@ onValue(lastScanRef, (snapshot) => {
       }
     } else if (state.currentScreen === "11-withdraw-scan-rfid") {
       const scannedCubby = scanData.cubby;
-      const cubbyObj = backend.cubbies.find(c => c.id === scannedCubby);
       
-      if (cubbyObj && cubbyObj.occupied) {
+      if (scannedCubby) {
         state.activeCubby = scannedCubby;
         state.scanErrorWarning = "";
         window.goToScreen("14-withdraw-cubby-open");

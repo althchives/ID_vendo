@@ -11,14 +11,14 @@ SECRET = "NHDkRkQ0PYBfSnVKuyESK5gWfsu9ubluRKhXaehJ"
 def update_firebase(data_path, data_dict):
     try:
         url = f"{FIREBASE_URL}/kiosk/{data_path}.json?auth={SECRET}"
-        requests.patch(url, json=data_dict, timeout=2)
+        requests.patch(url, json=data_dict, timeout=5)
     except Exception as e:
         print(f"[FIREBASE ERROR] Sync error: {e}")
 
 def get_kiosk_data():
     try:
         url = f"{FIREBASE_URL}/kiosk.json?auth={SECRET}"
-        res = requests.get(url, timeout=2)
+        res = requests.get(url, timeout=5)
         if res.status_code == 200:
             return res.json()
     except Exception as e:
@@ -35,7 +35,7 @@ def reset_kiosk_firebase():
     }
     try:
         url = f"{FIREBASE_URL}/kiosk.json?auth={SECRET}"
-        requests.put(url, json=clean_data, timeout=2)
+        requests.put(url, json=clean_data, timeout=5)
         print("[FIREBASE] Database successfully reset to clean state.")
     except Exception as e:
         print(f"[FIREBASE ERROR] Could not reset database: {e}")
@@ -230,11 +230,11 @@ def rfid_background_worker():
             card_id, text = reader.read_no_block()
             if card_id:
                 latest_scanned_card = int(card_id)
-                time.sleep(1.0)
+                time.sleep(1.5)
             else:
-                time.sleep(0.1)
+                time.sleep(0.4)
         except Exception:
-            time.sleep(0.2)
+            time.sleep(0.5)
 
 def main():
     global latest_scanned_card
