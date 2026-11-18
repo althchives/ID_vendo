@@ -204,8 +204,7 @@ function renderScreen() {
     case "05-deposit-scan-rfid":
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
-          <div class="status-icon-circle icon-scan" style="margin-bottom: 14px;">🪪</div>
-          <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Tap your RFID Visitor Pass</h2>
+         <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Tap your RFID Visitor Pass</h2>
           <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 16px;">Hold the issued visitor card near the scanner to unlock <strong>Cubby #${state.activeCubby}</strong>.</p>
           <div class="spinner-ring" style="width: 40px; height: 40px; border-width: 4px; margin-bottom: 16px;"></div>
           ${state.scanErrorWarning ? `<div style="background-color: #ffe6e6; color: #d9534f; padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 14px; max-width: 450px; border: 1px solid #ebccd1;">${state.scanErrorWarning}</div>` : ''}
@@ -227,8 +226,7 @@ function renderScreen() {
     case "07-deposit-close-door":
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
-          <div class="status-icon-circle icon-success" style="margin-bottom: 14px;">✅</div>
-          <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Deposit Complete!</h2>
+        <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Deposit Complete!</h2>
           <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 20px;">Your ID is safely stored in <strong>Cubby #${state.activeCubby}</strong>.</p>
           <button class="btn-primary" style="min-width:200px;" onclick="window.resetToIdle()">Done</button>
         </div>
@@ -238,7 +236,6 @@ function renderScreen() {
     case "10-deposit-complete":
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
-          <div class="status-icon-circle icon-success" style="margin-bottom: 14px;">✅</div>
           <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Deposit complete!</h2>
           <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 20px;">Your ID is safely stored in <strong>Cubby #${state.activeCubby}</strong>.</p>
           <button class="btn-primary" style="min-width:200px;" onclick="window.resetToIdle()">Done</button>
@@ -249,7 +246,6 @@ function renderScreen() {
     case "11-withdraw-scan-rfid":
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
-          <div class="status-icon-circle icon-scan" style="margin-bottom: 14px;">📡</div>
           <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Scan your RFID Visitor Pass</h2>
           <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 16px;">Tap your visitor card on the reader to open your assigned cubby.</p>
           <div class="spinner-ring" style="width: 40px; height: 40px; border-width: 4px; margin-bottom: 16px;"></div>
@@ -262,7 +258,7 @@ function renderScreen() {
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
           <h2 class="screen-title" style="font-size: 32px; font-weight: 800; margin-bottom: 16px;">Take your ID from Cubby #${state.activeCubby}</h2>
-          <button class="btn-primary" style="min-width:240px;" onclick="window.completeWithdraw()">ID Removed &amp; Close Door</button>
+          <button class="btn-primary" style="min-width:240px;" onclick="window.completeWithdraw()">Remove ID &amp; Close Door</button>
         </div>
       `;
       break;
@@ -270,7 +266,6 @@ function renderScreen() {
     case "18-withdraw-complete":
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
-          <div class="status-icon-circle icon-success" style="margin-bottom: 14px;">🎉</div>
           <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Thank you for visiting!</h2>
           <button class="btn-primary" style="min-width:200px;" onclick="window.resetToIdle()">Finish</button>
         </div>

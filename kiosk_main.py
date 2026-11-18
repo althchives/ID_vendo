@@ -130,6 +130,24 @@ def measure_distance():
     pulse_duration = pulse_end - pulse_start
     return round(pulse_duration * 17150, 2)
 
+def start_dc_motor():
+    print("[MOTOR ACTION] Starting DC motor infinitely...")
+    motor_pwm.ChangeDutyCycle(100)
+    GPIO.output(IN_1, GPIO.HIGH)
+    GPIO.output(IN_2, GPIO.LOW)
+
+def stop_dc_motor():
+    print("[MOTOR ACTION] Stopping DC motor.")
+    motor_pwm.ChangeDutyCycle(0)
+    GPIO.output(IN_1, GPIO.LOW)
+    GPIO.output(IN_2, GPIO.LOW)
+
+def check_card_dropped(threshold_cm=5.0):
+    dist = measure_distance()
+    if 0 < dist < threshold_cm:
+        return True
+    return False
+
 def scan_ir_and_find_nearest_vacant():
     print("\n--------------------------------------------------")
     print("[IR SENSORS CHECK] Scanning all cubbies occupancy...")
@@ -289,9 +307,23 @@ def main():
                 if cmd_ts > last_processed_cmd:
                     if cmd_action == "start_deposit":
                         last_processed_cmd = cmd_ts
-                        print("\n[EVENT RESULT] Deposit triggered! Scanning IR sensors...")
+                        print("\n[EVENT RESULT] Deposit triggered! Starting DC motor & scanning IR sensors...")
 
+                        # 1. Start DC motor infinitely
+                        start_dc_motor()
+
+                        # 2. Concurrently run IR sensor scan
                         assigned_cubby = scan_ir_and_find_nearest_vacant()
+
+                        # 3. Wait for ultrasonic sensor to detect card drop, then stop motor
+                        print("[ULTRASONIC] Waiting for card drop detection...")
+                        while True:
+                            if check_card_dropped(threshold_cm=5.0):
+                                print("[ULTRASONIC SUCCESS] Card drop detected!")
+                                break
+                            time.sleep(0.05)
+
+                        stop_dc_motor()
                         time.sleep(1.0)
 
                         update_firebase("", {
@@ -391,7 +423,6 @@ def main():
                         })
                     else:
                         print(f"-> [WITHDRAW WARNING] Scanned card UID {card_id} does not match any currently occupied cubby.")
-                        # Send cubby as null/None so frontend catches the invalid card warning
                         update_firebase("last_scan", {
                             "card_id": str(card_id),
                             "cubby": None,
