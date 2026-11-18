@@ -200,89 +200,93 @@ def main():
 
     time.sleep(2)
     last_motion_state = None
-    last_command_check = 0
-    last_motion_check = 0
-    last_processed_command_timestamp = 0
+    last_check = 0
+    verifying_processed = False
 
     try:
         while True:
             current_time = time.time()
 
-            # 1. PIR Motion Sensor Check (Strictly wakes up from Idle)
-            if current_time - last_motion_check > 0.5:
-                last_motion_check = current_time
-                current_motion_state = GPIO.input(PIR_PIN) == GPIO.HIGH
-                if current_motion_state != last_motion_state:
-                    last_motion_state = current_motion_state
+            # 1. PIR Motion Sensor Check (Only active when system is in Idle state)
+            if current_time - last_check > 0.4:
+                last_check = current_time
+                
+                kiosk_data = get_firebase_data("")
+                current_screen = kiosk_data.get("state") if kiosk_data else "01-idle"
+
+                # Only read PIR if we are currently on Idle screen
+                if current_screen == "01-idle":
+                    current_motion_state = GPIO.input(PIR_PIN) == GPIO.HIGH
                     if current_motion_state:
-                        print("\n[PIR RESULT] Motion detected! Waking up kiosk...")
+                        print("\n[PIR RESULT] Motion detected! Waking up kiosk to select mode...")
                         update_firebase("", {
                             "motion_detected": True,
                             "state": "02-select-mode",
                             "timestamp": time.time()
                         })
-                    else:
-                        update_firebase("", {
-                            "motion_detected": False,
-                            "timestamp": time.time()
-                        })
 
-            # 2. Check for 'Continue' button click on Deposit Details screen -> Initialize IR scan and assign active cubby, then stop at RFID scan page
-            if current_time - last_command_check > 0.5:
-                last_command_check = current_time
-                commands = get_firebase_data("commands")
-                if commands and commands.get("action") == "start_deposit":
-                    cmd_ts = commands.get("timestamp", 0)
-                    if cmd_ts > last_processed_command_timestamp:
-                        last_processed_command_timestamp = cmd_ts
-                        print("\n[EVENT RESULT] 'Continue' clicked! Initializing IR sensors for availability check...")
+                # 2. Check if user is on "Checking availability" page (04-deposit-verifying)
+                if current_screen == "04-deposit-verifying":
+                    if not verifying_processed:
+                        verifying_processed = True
+                        print("\n[EVENT RESULT] Reached 'Checking availability' page. Scanning IR sensors...")
 
-                        # Run IR sensor check and determine nearest vacant cubby
+                        # Scan IR sensors and find nearest vacant cubby
                         assigned_cubby = scan_ir_and_find_nearest_vacant()
-                        time.sleep(1.0) # Brief pause on verification screen
+                        time.sleep(1.2) # Brief verification delay for UI
 
-                        # Stop and wait on the RFID scan screen with the assigned active cubby
+                        # Now proceed to the RFID scan page with the assigned active cubby
                         update_firebase("", {
                             "state": "05-deposit-scan-rfid",
                             "active_cubby": assigned_cubby,
                             "timestamp": time.time()
                         })
-                        print(f"-> [HOLD] Waiting for user to scan RFID card for Cubby #{assigned_cubby}")
+                        print(f"-> [TRANSITION] Proceeding to RFID scan screen for Cubby #{assigned_cubby}")
+                else:
+                    verifying_processed = False
 
-            # 3. RFID Scan & Verification Phase (Only proceeds when correct card is scanned)
+            # 3. RFID Scan & Verification Phase (Active only on RFID scan screen)
             card_id, text = reader.read_no_block()
             if card_id:
-                print(f"\n[RFID RESULT] Scanned Card UID: {card_id}")
-                
-                if card_id in RFID_TO_CUBBY:
-                    scanned_cubby = RFID_TO_CUBBY[card_id]
-                    kiosk_root = get_firebase_data("")
-                    software_target_cubby = kiosk_root.get("active_cubby") if kiosk_root else None
+                kiosk_data = get_firebase_data("")
+                current_screen = kiosk_data.get("state") if kiosk_data else ""
 
-                    if software_target_cubby is not None:
-                        if scanned_cubby == software_target_cubby:
-                            print(f"-> [VERIFICATION SUCCESS] Card matches target Cubby #{software_target_cubby}!")
-                            
-                            dispense_card_until_detected()
-                            open_cubby(software_target_cubby)
-                            
-                            update_firebase("last_scan", {
-                                "card_id": str(card_id), 
-                                "cubby": software_target_cubby, 
-                                "timestamp": time.time()
-                            })
+                if current_screen == "05-deposit-scan-rfid":
+                    print(f"\n[RFID RESULT] Scanned Card UID: {card_id}")
+                    if card_id in RFID_TO_CUBBY:
+                        scanned_cubby = RFID_TO_CUBBY[card_id]
+                        software_target_cubby = kiosk_data.get("active_cubby")
 
-                            # Now wait for physical ID placement before closing and advancing
-                            monitor_id_placement_and_close(software_target_cubby)
-                        else:
-                            print(f"-> [SYSTEM WARNING] Incorrect RFID card scanned. Expected Cubby #{software_target_cubby}, got Cubby #{scanned_cubby}.")
-                            update_firebase("last_scan", {
-                                "card_id": str(card_id),
-                                "cubby": scanned_cubby,
-                                "timestamp": time.time()
-                            })
-                else:
-                    print(f"-> [SYSTEM WARNING] Unknown Card ID.")
+                        if software_target_cubby is not None:
+                            if scanned_cubby == software_target_cubby:
+                                print(f"-> [VERIFICATION SUCCESS] Correct card! Opening Cubby #{software_target_cubby}")
+                                
+                                dispense_card_until_detected()
+                                open_cubby(software_target_cubby)
+                                
+                                # Proceed to "Place card inside the specified cubby" page
+                                update_firebase("", {
+                                    "state": "06-deposit-cubby-open",
+                                    "timestamp": time.time()
+                                })
+
+                                update_firebase("last_scan", {
+                                    "card_id": str(card_id), 
+                                    "cubby": software_target_cubby, 
+                                    "timestamp": time.time()
+                                })
+
+                                # Monitor IR sensor for new state (ID placement)
+                                monitor_id_placement_and_close(software_target_cubby)
+                            else:
+                                print(f"-> [SYSTEM WARNING] Incorrect RFID card scanned.")
+                                update_firebase("last_scan", {
+                                    "card_id": str(card_id),
+                                    "cubby": scanned_cubby,
+                                    "timestamp": time.time()
+                                })
+                    else:
+                        print(f"-> [SYSTEM WARNING] Unknown Card ID.")
 
             time.sleep(0.05)
 

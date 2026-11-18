@@ -33,7 +33,6 @@ function resetInactivityTimer() {
   if (state.currentScreen !== "01-idle" && state.currentScreen !== "05-deposit-scan-rfid" && state.currentScreen !== "11-withdraw-scan-rfid") {
     inactivityTimer = setTimeout(() => {
       window.goToScreen("01-idle");
-      // Reset Firebase state back to idle on timeout
       set(ref(db, 'kiosk/state'), "01-idle").catch(err => console.error(err));
     }, 30000);
   }
@@ -77,7 +76,6 @@ let isInitialStateLoad = true;
 onValue(stateRef, (snapshot) => {
   const currentState = snapshot.val();
   
-  // On initial page load, ignore whatever old stale state is in Firebase and force idle
   if (isInitialStateLoad) {
     isInitialStateLoad = false;
     window.goToScreen("01-idle");
@@ -95,7 +93,6 @@ onValue(stateRef, (snapshot) => {
 });
 
 onValue(motionRef, (snapshot) => {
-  // Only trigger select mode from idle if PIR motion is explicitly true
   if (snapshot.val() === true && state.currentScreen === "01-idle") {
     window.goToScreen('02-select-mode');
   }
@@ -177,7 +174,7 @@ function renderScreen() {
     case "04-deposit-verifying":
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
-          <div class="spinner-ring" style="margin-bottom: 16px;"></div>
+          <div class="spinner-ring" style="width: 48px; height: 48px; border-width: 4px; margin-bottom: 16px;"></div>
           <h2 class="screen-title" style="font-size: 38px; font-weight: 800; margin-bottom: 10px;">Checking availability...</h2>
           <p class="subtitle" style="font-size: 16px; color: var(--text-secondary);">Reading IR sensors &amp; preparing your session.</p>
         </div>
@@ -196,16 +193,24 @@ function renderScreen() {
       `;
       break;
 
+    case "06-deposit-cubby-open":
+      card.innerHTML = `
+        <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
+          <h2 class="screen-title" style="font-size: 32px; font-weight: 800; margin-bottom: 8px;">Cubby #${state.activeCubby} is open</h2>
+          <p class="subtitle" style="font-size: 18px; font-weight: 600; color: var(--primary); margin-bottom: 24px;">Place card inside the specified cubby #${state.activeCubby}</p>
+          <div class="spinner-ring" style="width: 40px; height: 40px; border-width: 4px; margin-bottom: 20px;"></div>
+          <div class="cubby-status-text" style="font-size: 14px; font-weight: 500; color: var(--text-secondary);">Waiting for IR sensor detection...</div>
+        </div>
+      `;
+      break;
+
     case "07-deposit-close-door":
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
-          <h2 class="screen-title" style="font-size: 32px; font-weight: 800; margin-bottom: 8px;">Close Cubby #${state.activeCubby}</h2>
-          <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 20px;">Push the door until it clicks.</p>
-          <button class="btn-primary" style="min-width:240px; margin-bottom: 24px;" onclick="window.completeDeposit()">Close &amp; Lock Door</button>
-          <div style="width: 100%; max-width: 320px;">
-            ${renderCubbyGrid(state.activeCubby)}
-          </div>
-          <div class="cubby-status-text" style="margin-top: 12px; font-size: 14px; color: var(--text-secondary);">Waiting for door latch...</div>
+          <div class="status-icon-circle icon-success" style="margin-bottom: 14px;">✅</div>
+          <h2 class="screen-title" style="font-size: 32px; font-weight: 800; margin-bottom: 8px;">Deposit Complete!</h2>
+          <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 20px;">Your ID is safely stored in <strong>Cubby #${state.activeCubby}</strong>.</p>
+          <button class="btn-primary" style="min-width:200px;" onclick="window.goToScreen('01-idle')">Done</button>
         </div>
       `;
       break;
