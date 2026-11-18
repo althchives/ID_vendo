@@ -391,6 +391,7 @@ def main():
                         })
                     else:
                         print(f"-> [WITHDRAW WARNING] Scanned card UID {card_id} does not match any currently occupied cubby.")
+                        # Send cubby as null/None so frontend catches the invalid card warning
                         update_firebase("last_scan", {
                             "card_id": str(card_id),
                             "cubby": None,

@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 import { backend } from "./kiosk_backend.js";
 import { SCREENS } from "./screens.js";
 import { renderIdle } from "./idle.js";
@@ -107,9 +107,9 @@ onValue(activeCubbyRef, (snapshot) => {
 
 onValue(lastScanRef, (snapshot) => {
   const scanData = snapshot.val();
-  if (scanData && scanData.cubby) {
+  if (scanData) {
     if (state.currentScreen === "05-deposit-scan-rfid") {
-      if (scanData.cubby === state.activeCubby) {
+      if (scanData.cubby && scanData.cubby === state.activeCubby) {
         state.scanErrorWarning = "";
         window.goToScreen("06-deposit-cubby-open");
       } else {
@@ -117,14 +117,12 @@ onValue(lastScanRef, (snapshot) => {
         renderScreen();
       }
     } else if (state.currentScreen === "11-withdraw-scan-rfid") {
-      const scannedCubby = scanData.cubby;
-      
-      if (scannedCubby) {
-        state.activeCubby = scannedCubby;
+      if (scanData.cubby !== null && scanData.cubby !== undefined) {
+        state.activeCubby = scanData.cubby;
         state.scanErrorWarning = "";
         window.goToScreen("14-withdraw-cubby-open");
       } else {
-        state.scanErrorWarning = `The rfid card you scanned is incorrect. pls try again`;
+        state.scanErrorWarning = `Invalid RFID card. That card is not registered or active. Please try again.`;
         renderScreen();
       }
     }
@@ -175,6 +173,22 @@ function renderScreen() {
 
     case "03-deposit-details":
       renderDepositDetails(card, state, window.submitDepositDetails, () => window.goToScreen("02-select-mode"));
+      
+      // Apply input character limits (Max 20 for text fields, Max 11 for mobile contact number)
+      setTimeout(() => {
+        const nameInput = document.getElementById("inpName");
+        const affInput = document.getElementById("inpAffiliation");
+        const purpInput = document.getElementById("inpPurpose");
+        const contInput = document.getElementById("inpContact");
+
+        if (nameInput) nameInput.setAttribute("maxlength", "20");
+        if (affInput) affInput.setAttribute("maxlength", "20");
+        if (purpInput) purpInput.setAttribute("maxlength", "20");
+        if (contInput) {
+          contInput.setAttribute("maxlength", "11");
+          contInput.setAttribute("type", "tel");
+        }
+      }, 50);
       break;
 
     case "04-deposit-verifying":
@@ -318,6 +332,27 @@ window.submitDepositDetails = async () => {
   if (!name || !affiliation || !purpose || !contact) {
     if (errorMsg) errorMsg.textContent = "There are still missing fields, please fill them out.";
     return;
+  }
+
+  // Validation: Check phone number length (must be exactly or max 11 chars)
+  if (contact.length !== 11) {
+    if (errorMsg) errorMsg.textContent = "Mobile number must be exactly 11 digits.";
+    return;
+  }
+
+  // Validation: Check for duplicate mobile number in existing logs / backend
+  try {
+    const logsSnap = await get(ref(db, 'kioskLogs'));
+    if (logsSnap.exists()) {
+      const logs = logsSnap.val();
+      const duplicate = Object.values(logs).some(log => log.visitor && log.visitor.contact === contact);
+      if (duplicate) {
+        if (errorMsg) errorMsg.textContent = "This mobile number is already registered in an active session or record.";
+        return;
+      }
+    }
+  } catch (err) {
+    console.error("Error checking duplicate contact:", err);
   }
 
   state.form = { fullName: name, affiliation, purpose, contact };
