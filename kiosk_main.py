@@ -25,6 +25,21 @@ def get_kiosk_data():
         print(f"[FIREBASE ERROR] Read error: {e}")
     return None
 
+def reset_kiosk_firebase():
+    """Resets the Firebase kiosk tree to a clean initial state on startup"""
+    clean_data = {
+        "state": "01-idle",
+        "motion_detected": False,
+        "active_cubby": 1,
+        "commands": {"action": "none", "timestamp": 0}
+    }
+    try:
+        url = f"{FIREBASE_URL}/kiosk.json?auth={SECRET}"
+        requests.put(url, json=clean_data, timeout=2)
+        print("[FIREBASE] Database successfully reset to clean state.")
+    except Exception as e:
+        print(f"[FIREBASE ERROR] Could not reset database: {e}")
+
 # --- GPIO SETUP ---
 GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
@@ -115,25 +130,6 @@ def measure_distance():
     pulse_duration = pulse_end - pulse_start
     return round(pulse_duration * 17150, 2)
 
-def dispense_card_until_detected():
-    print("\n[MOTOR ACTION] Dispensing RFID card via DC Motor...")
-    GPIO.output(IN_1, GPIO.HIGH)
-    GPIO.output(IN_2, GPIO.LOW)
-    motor_pwm.ChangeDutyCycle(80)
-
-    start_time = time.time()
-    while True:
-        dist = measure_distance()
-        if (0 < dist < 8) or (time.time() - start_time > 2.5):
-            break
-        time.sleep(0.05)
-
-    GPIO.output(IN_1, GPIO.LOW)
-    GPIO.output(IN_2, GPIO.LOW)
-    motor_pwm.ChangeDutyCycle(0)
-    print("[MOTOR ACTION SUCCESS] Card dropped and detected.")
-    update_firebase("card_dispenser", {"last_dispensed": time.time()})
-
 def scan_ir_and_find_nearest_vacant():
     print("\n--------------------------------------------------")
     print("[IR SENSORS CHECK] Scanning all cubbies occupancy...")
@@ -222,22 +218,19 @@ def monitor_id_placement_and_close(cubby_num):
     })
     print("-> [TRANSITION] Software advanced to door closed screen.")
 
-# Shared variable to pass scanned card data safely from thread to main loop
 latest_scanned_card = None
 
 def rfid_background_worker():
-    """Dedicated background thread that polls the RFID reader continuously without network lag"""
     global latest_scanned_card
     reader = SimpleMFRC522()
     print("[RFID THREAD] Background reader listener started.")
     
     while True:
         try:
-            # Using read_no_block in a fast dedicated thread
             card_id, text = reader.read_no_block()
             if card_id:
                 latest_scanned_card = int(card_id)
-                time.sleep(1.0) # Debounce delay to prevent double reads on the same tap
+                time.sleep(1.0)
             else:
                 time.sleep(0.1)
         except Exception:
@@ -249,9 +242,8 @@ def main():
     print(" Smart Cubby Kiosk System - Active & Monitoring")
     print("--------------------------------------------------\n")
 
-    update_firebase("commands", {"action": "none", "timestamp": 0})
+    reset_kiosk_firebase()
 
-    # Start the RFID reader in a separate background daemon thread
     rfid_thread = threading.Thread(target=rfid_background_worker, daemon=True)
     rfid_thread.start()
 
@@ -264,7 +256,6 @@ def main():
         while True:
             current_time = time.time()
 
-            # 1. Poll Firebase for commands and states
             if current_time - last_check > 0.3:
                 last_check = current_time
                 
@@ -286,14 +277,12 @@ def main():
                             "timestamp": time.time()
                         })
 
-                # Detect transition into withdraw scan screen to print hardware IR list immediately
                 if current_screen == "11-withdraw-scan-rfid" and last_screen_checked != "11-withdraw-scan-rfid":
                     print("\n[EVENT RESULT] Entered Withdraw Scan Screen. Inspecting hardware IR records...")
                     get_occupied_cubbies_from_hardware()
 
                 last_screen_checked = current_screen
 
-                # Command Handlers for Deposit & Withdraw
                 cmd_action = commands.get("action")
                 cmd_ts = commands.get("timestamp", 0)
                 
@@ -324,15 +313,26 @@ def main():
                         })
                         print("-> [TRANSITION] Proceeding to Withdraw RFID scan screen.")
 
-            # 2. Process any card scanned by the background thread
+                    elif cmd_action == "close_withdraw":
+                        last_processed_cmd = cmd_ts
+                        target_cubby = commands.get("cubby", 1)
+                        print(f"\n[EVENT RESULT] Close withdraw triggered for Cubby #{target_cubby}!")
+
+                        close_cubby(target_cubby)
+
+                        update_firebase("", {
+                            "state": "18-withdraw-complete",
+                            "timestamp": time.time()
+                        })
+                        print(f"-> [TRANSITION] Cubby #{target_cubby} closed. Withdrawal sequence complete.")
+
             if latest_scanned_card is not None:
                 card_id = latest_scanned_card
-                latest_scanned_card = None  # Consume the card event
+                latest_scanned_card = None
 
                 kiosk_data = get_kiosk_data()
                 current_screen = kiosk_data.get("state") if kiosk_data else ""
 
-                # --- DEPOSIT SCAN ---
                 if current_screen == "05-deposit-scan-rfid":
                     print(f"\n[RFID DEPOSIT SCAN] Scanned Card UID: {card_id}")
                     if card_id in RFID_TO_CUBBY:
@@ -366,7 +366,6 @@ def main():
                     else:
                         print(f"-> [SYSTEM WARNING] Unknown Card ID.")
 
-                # --- WITHDRAW SCAN ---
                 elif current_screen == "11-withdraw-scan-rfid":
                     print(f"\n[RFID WITHDRAW SCAN] Scanned Card UID: {card_id}")
                     

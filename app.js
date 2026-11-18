@@ -69,6 +69,7 @@ const stateRef = ref(db, 'kiosk/state');
 const motionRef = ref(db, 'kiosk/motion_detected');
 const lastScanRef = ref(db, 'kiosk/last_scan');
 const cubbyStateRef = ref(db, 'kiosk/cubbyState');
+const activeCubbyRef = ref(db, 'kiosk/active_cubby');
 
 let isInitialStateLoad = true;
 
@@ -77,8 +78,7 @@ onValue(stateRef, (snapshot) => {
   
   if (isInitialStateLoad) {
     isInitialStateLoad = false;
-    window.goToScreen("01-idle");
-    set(ref(db, 'kiosk/state'), "01-idle").catch(err => console.error(err));
+    window.resetToIdle();
     return;
   }
 
@@ -94,6 +94,14 @@ onValue(stateRef, (snapshot) => {
 onValue(motionRef, (snapshot) => {
   if (snapshot.val() === true && state.currentScreen === "01-idle") {
     window.goToScreen('02-select-mode');
+  }
+});
+
+onValue(activeCubbyRef, (snapshot) => {
+  const cubbyNum = snapshot.val();
+  if (cubbyNum) {
+    state.activeCubby = cubbyNum;
+    renderScreen();
   }
 });
 
@@ -240,11 +248,8 @@ function renderScreen() {
     case "14-withdraw-cubby-open":
       card.innerHTML = `
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
-          <h2 class="screen-title" style="font-size: 32px; font-weight: 800; margin-bottom: 8px;">Take your ID from Cubby #${state.activeCubby}</h2>
-          <button class="btn-primary" style="min-width:240px; margin-bottom: 24px;" onclick="window.completeWithdraw()">ID Removed &amp; Close Door</button>
-          <div style="width: 100%; max-width: 320px;">
-            ${renderCubbyGrid(state.activeCubby)}
-          </div>
+          <h2 class="screen-title" style="font-size: 32px; font-weight: 800; margin-bottom: 16px;">Take your ID from Cubby #${state.activeCubby}</h2>
+          <button class="btn-primary" style="min-width:240px;" onclick="window.completeWithdraw()">ID Removed &amp; Close Door</button>
         </div>
       `;
       break;
@@ -283,11 +288,10 @@ window.goToScreen = (screenId) => {
 window.resetToIdle = () => {
   window.goToScreen("01-idle");
   set(ref(db, 'kiosk/state'), "01-idle").catch(err => console.error(err));
+  set(ref(db, 'kiosk/motion_detected'), false).catch(err => console.error(err));
 };
 
 window.startDeposit = () => {
-  const openCubby = backend.cubbies.find((c) => !c.occupied);
-  state.activeCubby = openCubby ? openCubby.id : 1;
   state.scanErrorWarning = "";
   window.goToScreen("03-deposit-details");
 };
@@ -334,13 +338,22 @@ window.submitDepositDetails = async () => {
 window.completeDeposit = async () => {
   await backend.depositToCubby(state.activeCubby, { ...state.form });
   window.goToScreen("10-deposit-complete");
-  set(ref(db, 'kiosk/state'), "01-idle").catch(err => console.error(err));
+  window.resetToIdle();
 };
 
 window.completeWithdraw = async () => {
+  state.scanErrorWarning = "";
+  try {
+    await set(ref(db, 'kiosk/commands'), {
+      action: "close_withdraw",
+      cubby: state.activeCubby,
+      timestamp: Date.now()
+    });
+  } catch (err) {
+    console.error("Failed to send close_withdraw command:", err);
+  }
   await backend.withdrawFromCubby(state.activeCubby);
   window.goToScreen("18-withdraw-complete");
-  set(ref(db, 'kiosk/state'), "01-idle").catch(err => console.error(err));
 };
 
 backend.init(() => renderScreen());
