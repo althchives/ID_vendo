@@ -32,8 +32,7 @@ function resetInactivityTimer() {
   if (inactivityTimer) clearTimeout(inactivityTimer);
   if (state.currentScreen !== "01-idle" && state.currentScreen !== "05-deposit-scan-rfid" && state.currentScreen !== "11-withdraw-scan-rfid") {
     inactivityTimer = setTimeout(() => {
-      window.goToScreen("01-idle");
-      set(ref(db, 'kiosk/state'), "01-idle").catch(err => console.error(err));
+      window.resetToIdle();
     }, 30000);
   }
 }
@@ -210,7 +209,7 @@ function renderScreen() {
           <div class="status-icon-circle icon-success" style="margin-bottom: 14px;">✅</div>
           <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Deposit Complete!</h2>
           <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 20px;">Your ID is safely stored in <strong>Cubby #${state.activeCubby}</strong>.</p>
-          <button class="btn-primary" style="min-width:200px;" onclick="window.goToScreen('01-idle')">Done</button>
+          <button class="btn-primary" style="min-width:200px;" onclick="window.resetToIdle()">Done</button>
         </div>
       `;
       break;
@@ -221,7 +220,7 @@ function renderScreen() {
           <div class="status-icon-circle icon-success" style="margin-bottom: 14px;">✅</div>
           <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Deposit complete!</h2>
           <p class="subtitle" style="font-size: 16px; color: var(--text-secondary); margin-bottom: 20px;">Your ID is safely stored in <strong>Cubby #${state.activeCubby}</strong>.</p>
-          <button class="btn-primary" style="min-width:200px;" onclick="window.goToScreen('01-idle')">Done</button>
+          <button class="btn-primary" style="min-width:200px;" onclick="window.resetToIdle()">Done</button>
         </div>
       `;
       break;
@@ -255,7 +254,7 @@ function renderScreen() {
         <div class="center-stage" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%;">
           <div class="status-icon-circle icon-success" style="margin-bottom: 14px;">🎉</div>
           <h2 class="screen-title" style="font-size: 34px; font-weight: 800; margin-bottom: 8px;">Thank you for visiting!</h2>
-          <button class="btn-primary" style="min-width:200px;" onclick="window.goToScreen('01-idle')">Finish</button>
+          <button class="btn-primary" style="min-width:200px;" onclick="window.resetToIdle()">Finish</button>
         </div>
       `;
       break;
@@ -279,6 +278,11 @@ window.goToScreen = (screenId) => {
   state.currentScreen = screenId;
   resetInactivityTimer();
   renderScreen();
+};
+
+window.resetToIdle = () => {
+  window.goToScreen("01-idle");
+  set(ref(db, 'kiosk/state'), "01-idle").catch(err => console.error(err));
 };
 
 window.startDeposit = () => {
