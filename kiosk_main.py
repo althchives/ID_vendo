@@ -14,9 +14,9 @@ def update_firebase(data_path, data_dict):
     except Exception as e:
         print(f"[FIREBASE ERROR] Sync error: {e}")
 
-def get_firebase_data(data_path):
+def get_kiosk_data():
     try:
-        url = f"{FIREBASE_URL}/kiosk/{data_path}.json?auth={SECRET}"
+        url = f"{FIREBASE_URL}/kiosk.json?auth={SECRET}"
         res = requests.get(url, timeout=2)
         if res.status_code == 200:
             return res.json()
@@ -29,7 +29,7 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
 
 # --- PIN MAPPINGS ---
-PIR_PIN = 17                               # PIR Motion Sensor on GPIO 17
+PIR_PIN = 17                               # PIR Motion Sensor on GPIO 17 (Strictly Motion Only)
 IR_PINS = [4, 18, 14, 16, 21, 15]          # Cubbies 1 to 6 IR sensors
 SERVO_PINS = [5, 6, 13, 19, 26, 20]        # Cubbies 1 to 6 Servos
 
@@ -133,7 +133,7 @@ def dispense_card_until_detected():
 
 def scan_ir_and_find_nearest_vacant():
     print("\n--------------------------------------------------")
-    print("[IR SENSORS CHECK] Scanning cubbies occupancy...")
+    print("[IR SENSORS CHECK] Scanning all cubbies occupancy...")
     print("--------------------------------------------------")
     
     cubbies_data = []
@@ -142,9 +142,10 @@ def scan_ir_and_find_nearest_vacant():
 
     for i, pin in enumerate(IR_PINS):
         status = GPIO.input(pin)
-        is_occupied = (status == 0)
+        is_occupied = (status == 0) # 0 = Blocked/Occupied, 1 = Clear/Available
         status_str = "Occupied" if is_occupied else "Available"
-        print(f" -> Cubby {i+1} (GPIO {pin}): {status_str}")
+        
+        print(f" -> Cubby #{i+1} (GPIO {pin}): {status_str} [Raw Value: {status}]")
         
         cubbies_data.append({
             "id": i + 1,
@@ -162,28 +163,35 @@ def scan_ir_and_find_nearest_vacant():
         "updatedAt": time.time()
     })
 
-    print(f"-> [RESULT] Nearest Vacant Cubby Assigned: #{nearest_vacant}\n")
+    print(f"--------------------------------------------------")
+    print(f"-> [RESULT] Nearest Vacant Cubby Assigned: #{nearest_vacant}")
+    print(f"--------------------------------------------------\n")
     return nearest_vacant
 
 def monitor_id_placement_and_close(cubby_num):
-    print(f"\n[MONITORING] Waiting for ID placement in Cubby #{cubby_num} via IR sensor...")
-    ir_pin = IR_PINS[cubby_num - 1]
+    print(f"\n--------------------------------------------------")
+    print(f"[IR MONITORING] Actively watching Cubby #{cubby_num} (GPIO {IR_PINS[cubby_num - 1]}) for ID placement...")
+    print(f"--------------------------------------------------")
     
+    ir_pin = IR_PINS[cubby_num - 1]
     start_time = time.time()
+    
     while True:
         status = GPIO.input(ir_pin)
         is_occupied = (status == 0)
         
+        print(f" [Live IR Scan] Cubby #{cubby_num} status -> {'Occupied (ID Placed)' if is_occupied else 'Waiting for ID...'} [Raw: {status}]", end="\r")
+        
         if is_occupied:
-            print(f"[IR DETECTED] ID successfully placed in Cubby #{cubby_num}!")
+            print(f"\n[IR DETECTED SUCCESS] ID successfully placed in Cubby #{cubby_num}!")
             time.sleep(1)
             break
             
         if time.time() - start_time > 60:
-            print("[TIMEOUT] ID placement monitoring timed out.")
+            print(f"\n[TIMEOUT WARNING] ID placement monitoring timed out for Cubby #{cubby_num}.")
             break
             
-        time.sleep(0.2)
+        time.sleep(0.3)
 
     close_cubby(cubby_num)
     update_firebase("", {
@@ -195,26 +203,33 @@ def monitor_id_placement_and_close(cubby_num):
 def main():
     reader = SimpleMFRC522()
     print("--------------------------------------------------")
-    print(" Smart Cubby Kiosk System - Active")
+    print(" Smart Cubby Kiosk System - Active & Monitoring")
     print("--------------------------------------------------\n")
 
+    # Clear out any old stale commands on startup so it doesn't auto-trigger
+    update_firebase("commands", {"action": "none", "timestamp": 0})
+
     time.sleep(2)
-    last_motion_state = None
     last_check = 0
-    verifying_processed = False
+    
+    # Get current timestamp so we only accept NEW clicks made after script startup
+    last_processed_cmd = time.time() * 1000
 
     try:
         while True:
             current_time = time.time()
 
-            # 1. PIR Motion Sensor Check (Only active when system is in Idle state)
-            if current_time - last_check > 0.4:
+            if current_time - last_check > 0.3:
                 last_check = current_time
                 
-                kiosk_data = get_firebase_data("")
-                current_screen = kiosk_data.get("state") if kiosk_data else "01-idle"
+                kiosk_data = get_kiosk_data()
+                if not kiosk_data:
+                    continue
 
-                # Only read PIR if we are currently on Idle screen
+                current_screen = kiosk_data.get("state", "01-idle")
+                commands = kiosk_data.get("commands", {})
+
+                # 1. PIR Motion Sensor Check (Active when system is in Idle state)
                 if current_screen == "01-idle":
                     current_motion_state = GPIO.input(PIR_PIN) == GPIO.HIGH
                     if current_motion_state:
@@ -225,30 +240,28 @@ def main():
                             "timestamp": time.time()
                         })
 
-                # 2. Check if user is on "Checking availability" page (04-deposit-verifying)
-                if current_screen == "04-deposit-verifying":
-                    if not verifying_processed:
-                        verifying_processed = True
-                        print("\n[EVENT RESULT] Reached 'Checking availability' page. Scanning IR sensors...")
+                # 2. IR Sensor Availability Check (Triggered ONLY on fresh click of 'Continue')
+                cmd_action = commands.get("action")
+                cmd_ts = commands.get("timestamp", 0)
+                
+                if cmd_action == "start_deposit" and cmd_ts > last_processed_cmd:
+                    last_processed_cmd = cmd_ts
+                    print("\n[EVENT RESULT] 'Continue' clicked! Scanning IR sensors...")
 
-                        # Scan IR sensors and find nearest vacant cubby
-                        assigned_cubby = scan_ir_and_find_nearest_vacant()
-                        time.sleep(1.2) # Brief verification delay for UI
+                    assigned_cubby = scan_ir_and_find_nearest_vacant()
+                    time.sleep(1.0)
 
-                        # Now proceed to the RFID scan page with the assigned active cubby
-                        update_firebase("", {
-                            "state": "05-deposit-scan-rfid",
-                            "active_cubby": assigned_cubby,
-                            "timestamp": time.time()
-                        })
-                        print(f"-> [TRANSITION] Proceeding to RFID scan screen for Cubby #{assigned_cubby}")
-                else:
-                    verifying_processed = False
+                    update_firebase("", {
+                        "state": "05-deposit-scan-rfid",
+                        "active_cubby": assigned_cubby,
+                        "timestamp": time.time()
+                    })
+                    print(f"-> [TRANSITION] Proceeding to RFID scan screen for Cubby #{assigned_cubby}")
 
-            # 3. RFID Scan & Verification Phase (Active only on RFID scan screen)
+            # 3. RFID Scan & Verification Phase
             card_id, text = reader.read_no_block()
             if card_id:
-                kiosk_data = get_firebase_data("")
+                kiosk_data = get_kiosk_data()
                 current_screen = kiosk_data.get("state") if kiosk_data else ""
 
                 if current_screen == "05-deposit-scan-rfid":
@@ -264,7 +277,6 @@ def main():
                                 dispense_card_until_detected()
                                 open_cubby(software_target_cubby)
                                 
-                                # Proceed to "Place card inside the specified cubby" page
                                 update_firebase("", {
                                     "state": "06-deposit-cubby-open",
                                     "timestamp": time.time()
@@ -276,10 +288,9 @@ def main():
                                     "timestamp": time.time()
                                 })
 
-                                # Monitor IR sensor for new state (ID placement)
                                 monitor_id_placement_and_close(software_target_cubby)
                             else:
-                                print(f"-> [SYSTEM WARNING] Incorrect RFID card scanned.")
+                                print(f"-> [SYSTEM WARNING] Incorrect RFID card scanned. Expected Cubby #{software_target_cubby}, got Cubby #{scanned_cubby}.")
                                 update_firebase("last_scan", {
                                     "card_id": str(card_id),
                                     "cubby": scanned_cubby,
