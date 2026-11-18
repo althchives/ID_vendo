@@ -1,0 +1,5 @@
+.cubby-action-stage { display: grid; grid-template-columns: 1fr 1.05fr; gap: 48px; align-items: center; width: 100%; }
+.checklist { list-style: none; width: 100%; margin: 12px 0 26px; display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.checklist li { display: flex; align-items: center; gap: 14px; background: var(--pill-bg); border: 1px solid var(--pill-border); padding: 14px 18px; border-radius: 16px; font-size: 17px; font-weight: 600; }
+.check-badge { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-purple); color: #fff; font-size: 14px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.check-badge.done { background: #10b981; }

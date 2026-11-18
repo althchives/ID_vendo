@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visitor ID Kiosk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="idle.css" />
+  <link rel="stylesheet" href="select_mode.css" />
+  <link rel="stylesheet" href="deposit_details.css" />
+  <link rel="stylesheet" href="scan_rfid.css" />
+  <link rel="stylesheet" href="cubby_action.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand" onclick="window.goToScreen('01-idle')">
+      <span>Visitor ID Kiosk</span>
+      <span class="firebase-pill"><span class="dot"></span><span>Ready</span></span>
+    </div>
+    <div class="topbar-right">
+      <div class="state-badge" id="stateBadge">Idle</div>
+    </div>
+  </header>
+
+  <main class="kiosk-card" id="kioskCard"></main>
+
+  <!-- App Controller ES Module -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
